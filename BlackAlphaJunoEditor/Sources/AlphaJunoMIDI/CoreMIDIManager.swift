@@ -65,7 +65,7 @@ public final class CoreMIDIManager: @unchecked Sendable
         var o = MIDIPortRef()
         var i = MIDIPortRef()
 
-        guard MIDIClientCreateWithBlock("AlphaJunoPG300" as CFString, &c, { _ in }) == noErr else
+        guard MIDIClientCreateWithBlock("BlackAlphaJunoEditor" as CFString, &c, { _ in }) == noErr else
         {
             throw Error.coreMIDI(-1)
         }

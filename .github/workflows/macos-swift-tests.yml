@@ -14,6 +14,6 @@ jobs:
       - name: Run SwiftPM tests (AlphaJunoCore)
         shell: bash
         run: |
-          cd AlphaJunoPG300
+          cd BlackAlphaJunoEditor
           swift test -v
 

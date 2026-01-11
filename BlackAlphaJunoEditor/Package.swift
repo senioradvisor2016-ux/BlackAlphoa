@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "AlphaJunoPG300",
+    name: "BlackAlphaJunoEditor",
     platforms: [
         .macOS(.v13)
     ],
@@ -24,7 +24,7 @@ let package = Package(
         .executableTarget(
             name: "BlackAlphaJunoEditorApp",
             dependencies: ["AlphaJunoCore", "AlphaJunoMIDI"],
-            path: "Sources/AlphaJunoPG300App"
+            path: "Sources/BlackAlphaJunoEditorApp"
         ),
         .testTarget(
             name: "AlphaJunoCoreTests",
