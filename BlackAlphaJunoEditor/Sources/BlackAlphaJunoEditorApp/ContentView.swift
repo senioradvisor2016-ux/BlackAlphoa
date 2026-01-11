@@ -7,12 +7,15 @@ struct ContentView: View
 {
     @StateObject private var appModel = AppViewModel()
     @StateObject private var librarianModel = LibrarianViewModel()
+    @ObservedObject var prefs: PreferencesModel
+
+    @State private var showConnectionWizard: Bool = false
 
     var body: some View
     {
         VStack(spacing: 0)
         {
-            TopBarView(appModel: appModel)
+            TopBarView(appModel: appModel, prefs: prefs, showConnectionWizard: $showConnectionWizard)
                 .padding(12)
             Divider()
 
@@ -32,6 +35,20 @@ struct ContentView: View
                 .padding(.vertical, 8)
         }
         .frame(minWidth: 1100, idealWidth: 1280, minHeight: 740, idealHeight: 820)
+        .onAppear
+        {
+            // First-run experience: show connection wizard if no MIDI Out selected.
+            if appModel.selectedDestinationID == nil
+            {
+                showConnectionWizard = true
+            }
+            // Apply default send mode.
+            Task { await appModel.setLiveSendEnabled(prefs.liveSendDefault) }
+        }
+        .sheet(isPresented: $showConnectionWizard)
+        {
+            ConnectionWizardView(appModel: appModel, prefs: prefs)
+        }
         .alert("MIDI Error", isPresented: $appModel.showError, actions: {
             Button("OK", role: .cancel) {}
         }, message: {
@@ -175,6 +192,31 @@ final class AppViewModel: ObservableObject
         await pullStatus()
     }
 
+    func manualSendAll(interMessageDelayMs: UInt64) async
+    {
+        guard let session else { return }
+        await session.manualSendAll(interMessageDelayMs: interMessageDelayMs)
+        await pullStatus()
+    }
+
+    func testIPRSysEx() async -> Bool
+    {
+        guard let session else { return false }
+        do
+        {
+            // Send a harmless IPR message (param 0, value 0).
+            try await session.sendIPRNow(param: 0x00, value: 0x00)
+            await pullStatus()
+            return true
+        }
+        catch
+        {
+            lastError = String(describing: error)
+            showError = true
+            return false
+        }
+    }
+
     func pullStatus() async
     {
         guard let session else { return }
@@ -188,6 +230,8 @@ final class AppViewModel: ObservableObject
 struct TopBarView: View
 {
     @ObservedObject var appModel: AppViewModel
+    @ObservedObject var prefs: PreferencesModel
+    @Binding var showConnectionWizard: Bool
 
     var body: some View
     {
@@ -203,6 +247,15 @@ struct TopBarView: View
             }
 
             Spacer()
+
+            Button
+            {
+                showConnectionWizard = true
+            }
+            label:
+            {
+                Text(appModel.selectedDestinationID == nil ? "Setup (Required)" : "Setup")
+            }
 
             Picker("MIDI Out", selection: Binding(get: {
                 appModel.selectedDestinationID
@@ -253,7 +306,7 @@ struct TopBarView: View
 
             Button("MANUAL SEND")
             {
-                Task { await appModel.manualSendAll() }
+                Task { await appModel.manualSendAll(interMessageDelayMs: UInt64(max(0, prefs.interMessageDelayMs))) }
             }
             .keyboardShortcut(.return, modifiers: [.command, .shift])
         }
@@ -268,6 +321,15 @@ struct StatusBarView: View
     {
         HStack(spacing: 12)
         {
+            HStack(spacing: 6)
+            {
+                Circle()
+                    .fill(appModel.selectedDestinationID == nil ? Color.red : Color.green)
+                    .frame(width: 8, height: 8)
+                Text(appModel.selectedDestinationID == nil ? "Disconnected" : "Connected")
+                    .font(.caption)
+            }
+
             Text("Pending: \(appModel.pendingCount)")
                 .font(.caption)
                 .foregroundStyle(.secondary)

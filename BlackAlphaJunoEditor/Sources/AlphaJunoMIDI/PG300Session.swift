@@ -122,6 +122,14 @@ public actor PG300Session
 
     // MARK: - Sending
 
+    public func sendIPRNow(param: UInt8, value: UInt8) async throws
+    {
+        let bytes = try SysExIPR.iprMessage(channel: channel, param: param, value: value)
+        try await midi.sendSysEx(bytes, timeoutSeconds: 1.0)
+        lastSentHex = Self.hex(bytes)
+        lastError = nil
+    }
+
     public func manualSendAll(interMessageDelayMs: UInt64 = 6) async
     {
         do
