@@ -11,9 +11,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run SwiftPM tests (AlphaJunoCore)
+      - name: Run SwiftPM tests
         shell: bash
         run: |
           cd BlackAlphaJunoEditor
           swift test -v
+
+      - name: Build app (Release)
+        shell: bash
+        run: |
+          cd BlackAlphaJunoEditor
+          swift build -c release -v
 

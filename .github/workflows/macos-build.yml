@@ -30,3 +30,9 @@ jobs:
         run: |
           cmake --build build
 
+      - name: List built artefacts (sanity)
+        shell: bash
+        run: |
+          ls -la build/AlphaJuno2Editor_artefacts || true
+          ls -la build/AlphaJuno2EditorPlugin_artefacts || true
+

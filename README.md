@@ -77,3 +77,33 @@ Kör appen:
 ### Viktigt
 
 Alpha Juno-2 har en specifik SysEx/parameter-map. I den här versionen är den **inte implementerad** ännu (appens UI och transporten är på plats).
+
+## BlackAlpha (SwiftUI, macOS)
+
+Det finns även en macOS-app byggd i **Swift/SwiftUI + CoreMIDI** i `BlackAlphaJunoEditor/`.
+
+### Köra / Systemtest (macOS)
+
+Öppna `BlackAlphaJunoEditor/Package.swift` i Xcode och kör target `BlackAlphaJunoEditor`.
+
+Manuell GUI-checklista (snabb “systemtest”):
+
+- **Connection Wizard**
+  - Öppnas automatiskt om ingen MIDI Out är vald
+  - Välj MIDI Out/In, Merge, Channel
+  - Klicka **Test SysEx (IPR)** → status/logg visar att SysEx skickats
+- **Editor**
+  - Verifiera att det finns **36 parametrar** (0x00–0x23) i sektioner
+  - Ändra ett värde → **Dirty: N** ökar
+  - **SEND → Send Changed** skickar bara dirty och minskar dirty-count
+  - **SEND → Send All** skickar 36 (progress + Cancel syns)
+- **A/B**
+  - Byt slot A/B → värden byts utan att sända
+  - Copy/Swap/Revert fungerar och påverkar Dirty korrekt per slot
+- **Librarian**
+  - Load `.syx` → lista 64 tones + rename + export
+  - Drag & drop `.syx/.fxb/.db` fungerar
+  - Favoriter/tags sparas lokalt och filter fungerar
+
+Automatiska tester körs i GitHub Actions på macOS:
+- `swift test` + `swift build -c release`
