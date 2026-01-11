@@ -10,9 +10,14 @@ public actor PG300Session
         public var mergeEnabled: Bool
         public var channel: Int
         public var liveSendEnabled: Bool
+        public var throttleHz: Int
         public var pendingCount: Int
         public var lastSentHex: String?
         public var lastError: String?
+        public var sendInProgress: Bool
+        public var sendSentCount: Int
+        public var sendTotalCount: Int
+        public var sendMode: String?
     }
 
     private let midi: CoreMIDIManager
@@ -22,6 +27,7 @@ public actor PG300Session
 
     private var channel: Int = 1
     private var liveSendEnabled: Bool = false
+    private var throttleHz: Int = 60
 
     private var values: [UInt8: UInt8] = [:]
     private var pending: [UInt8: UInt8] = [:]
@@ -29,6 +35,12 @@ public actor PG300Session
     private var flushTask: Task<Void, Never>?
     private var lastSentHex: String?
     private var lastError: String?
+
+    private var sendInProgress: Bool = false
+    private var sendSentCount: Int = 0
+    private var sendTotalCount: Int = 0
+    private var sendMode: String?
+    private var cancelRequested: Bool = false
 
     public init() throws
     {
@@ -104,6 +116,11 @@ public actor PG300Session
         }
     }
 
+    public func setThrottleHz(_ hz: Int)
+    {
+        throttleHz = max(10, min(120, hz))
+    }
+
     // MARK: - Parameter updates
 
     public func setValue(param: UInt8, value: UInt8)
@@ -132,19 +149,54 @@ public actor PG300Session
 
     public func manualSendAll(interMessageDelayMs: UInt64 = 6) async
     {
+        await manualSend(params: PG300Parameters.all.map(\.id),
+                         mode: "All",
+                         interMessageDelayMs: interMessageDelayMs)
+    }
+
+    public func manualSend(params: [UInt8], mode: String, interMessageDelayMs: UInt64 = 6) async
+    {
+        if sendInProgress
+        {
+            lastError = "Send already in progress."
+            return
+        }
+
+        cancelRequested = false
+        sendInProgress = true
+        sendMode = mode
+        sendSentCount = 0
+        sendTotalCount = params.count
+
+        defer
+        {
+            sendInProgress = false
+            sendMode = nil
+            cancelRequested = false
+        }
+
         do
         {
-            for p in PG300Parameters.all
+            for param in params
             {
-                let v = values[p.id] ?? 0
-                let bytes = try SysExIPR.iprMessage(channel: channel, param: p.id, value: v)
+                if Task.isCancelled || cancelRequested
+                {
+                    lastError = nil
+                    break
+                }
+
+                let v = values[param] ?? 0
+                let bytes = try SysExIPR.iprMessage(channel: channel, param: param, value: v)
                 try await midi.sendSysEx(bytes, timeoutSeconds: 1.0)
                 lastSentHex = Self.hex(bytes)
+                sendSentCount += 1
+
                 if interMessageDelayMs > 0
                 {
                     try await Task.sleep(nanoseconds: interMessageDelayMs * 1_000_000)
                 }
             }
+
             lastError = nil
         }
         catch
@@ -153,13 +205,18 @@ public actor PG300Session
         }
     }
 
+    public func cancelManualSend()
+    {
+        cancelRequested = true
+    }
+
     private func flushLoop() async
     {
-        // Spec: 60 Hz flush for smooth sliders; coalescing keeps traffic reasonable.
-        let tickNs: UInt64 = 16_666_667
         while !Task.isCancelled
         {
             await flushPending()
+            let hz = max(10, throttleHz)
+            let tickNs: UInt64 = UInt64(1_000_000_000 / hz)
             try? await Task.sleep(nanoseconds: tickNs)
         }
     }
@@ -197,9 +254,14 @@ public actor PG300Session
             mergeEnabled: midi.mergeEnabled,
             channel: channel,
             liveSendEnabled: liveSendEnabled,
+            throttleHz: throttleHz,
             pendingCount: pending.count,
             lastSentHex: lastSentHex,
-            lastError: lastError
+            lastError: lastError,
+            sendInProgress: sendInProgress,
+            sendSentCount: sendSentCount,
+            sendTotalCount: sendTotalCount,
+            sendMode: sendMode
         )
     }
 

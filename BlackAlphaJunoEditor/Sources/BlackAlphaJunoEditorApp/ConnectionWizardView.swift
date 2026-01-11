@@ -130,6 +130,9 @@ struct ConnectionWizardView: View
         }
         .padding(18)
         .frame(width: 640)
+        .onChange(of: prefs.throttleHz) { _, newValue in
+            Task { await appModel.setThrottleHz(newValue) }
+        }
     }
 
     private func runTest() async

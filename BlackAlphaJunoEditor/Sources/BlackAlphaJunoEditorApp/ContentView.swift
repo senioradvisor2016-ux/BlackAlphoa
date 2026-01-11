@@ -44,6 +44,10 @@ struct ContentView: View
             }
             // Apply default send mode.
             Task { await appModel.setLiveSendEnabled(prefs.liveSendDefault) }
+            Task { await appModel.setThrottleHz(prefs.throttleHz) }
+        }
+        .onChange(of: prefs.throttleHz) { _, newValue in
+            Task { await appModel.setThrottleHz(newValue) }
         }
         .sheet(isPresented: $showConnectionWizard)
         {
@@ -74,9 +78,19 @@ final class AppViewModel: ObservableObject
     @Published var lastSentHex: String?
     @Published var lastError: String?
     @Published var showError: Bool = false
+    @Published var sendInProgress: Bool = false
+    @Published var sendSentCount: Int = 0
+    @Published var sendTotalCount: Int = 0
+    @Published var sendMode: String?
+    @Published var throttleHz: Int = 60
 
     @Published var paramValues: [UInt8: UInt8] =
         Dictionary(uniqueKeysWithValues: PG300Parameters.all.map { ($0.id, UInt8(0)) })
+
+    private var lastSentValues: [UInt8: UInt8] =
+        Dictionary(uniqueKeysWithValues: PG300Parameters.all.map { ($0.id, UInt8(0)) })
+    @Published private(set) var dirtyParamCount: Int = 0
+    private var dirtyParams: Set<UInt8> = []
 
     private var session: PG300Session?
 
@@ -178,9 +192,27 @@ final class AppViewModel: ObservableObject
         await pullStatus()
     }
 
+    func setThrottleHz(_ hz: Int) async
+    {
+        throttleHz = max(10, min(120, hz))
+        guard let session else { return }
+        await session.setThrottleHz(throttleHz)
+        await pullStatus()
+    }
+
     func setParamValue(_ v: UInt8, for param: UInt8)
     {
         paramValues[param] = v
+        if lastSentValues[param] != v
+        {
+            dirtyParams.insert(param)
+        }
+        else
+        {
+            dirtyParams.remove(param)
+        }
+        dirtyParamCount = dirtyParams.count
+
         guard let session else { return }
         Task { await session.setValue(param: param, value: v) }
     }
@@ -196,6 +228,47 @@ final class AppViewModel: ObservableObject
     {
         guard let session else { return }
         await session.manualSendAll(interMessageDelayMs: interMessageDelayMs)
+        await pullStatus()
+        if lastError == nil
+        {
+            lastSentValues = paramValues
+            dirtyParams.removeAll(keepingCapacity: true)
+            dirtyParamCount = 0
+        }
+    }
+
+    func manualSendChanged(interMessageDelayMs: UInt64) async
+    {
+        guard let session else { return }
+        let params = dirtyParams.sorted()
+        await session.manualSend(params: params, mode: "Changed", interMessageDelayMs: interMessageDelayMs)
+        await pullStatus()
+        if lastError == nil
+        {
+            for p in params { lastSentValues[p] = paramValues[p] ?? 0 }
+            dirtyParams.subtract(params)
+            dirtyParamCount = dirtyParams.count
+        }
+    }
+
+    func manualSendSection(group: PGParameter.Group, interMessageDelayMs: UInt64) async
+    {
+        guard let session else { return }
+        let params = PG300Parameters.all.filter { $0.group == group }.map(\.id).sorted()
+        await session.manualSend(params: params, mode: group.rawValue, interMessageDelayMs: interMessageDelayMs)
+        await pullStatus()
+        if lastError == nil
+        {
+            for p in params { lastSentValues[p] = paramValues[p] ?? 0 }
+            dirtyParams.subtract(params)
+            dirtyParamCount = dirtyParams.count
+        }
+    }
+
+    func cancelManualSend() async
+    {
+        guard let session else { return }
+        await session.cancelManualSend()
         await pullStatus()
     }
 
@@ -224,6 +297,11 @@ final class AppViewModel: ObservableObject
         pendingCount = st.pendingCount
         lastSentHex = st.lastSentHex
         lastError = st.lastError
+        sendInProgress = st.sendInProgress
+        sendSentCount = st.sendSentCount
+        sendTotalCount = st.sendTotalCount
+        sendMode = st.sendMode
+        throttleHz = st.throttleHz
     }
 }
 
@@ -232,6 +310,8 @@ struct TopBarView: View
     @ObservedObject var appModel: AppViewModel
     @ObservedObject var prefs: PreferencesModel
     @Binding var showConnectionWizard: Bool
+    @State private var showSectionSheet: Bool = false
+    @State private var selectedSection: PGParameter.Group = .dco
 
     var body: some View
     {
@@ -304,11 +384,64 @@ struct TopBarView: View
             }))
             .toggleStyle(.switch)
 
-            Button("MANUAL SEND")
+            Menu
             {
-                Task { await appModel.manualSendAll(interMessageDelayMs: UInt64(max(0, prefs.interMessageDelayMs))) }
+                Button("Send All (36)")
+                {
+                    Task { await appModel.manualSendAll(interMessageDelayMs: UInt64(max(0, prefs.interMessageDelayMs))) }
+                }
+
+                Button("Send Changed (\(appModel.dirtyParamCount))")
+                {
+                    Task { await appModel.manualSendChanged(interMessageDelayMs: UInt64(max(0, prefs.interMessageDelayMs))) }
+                }
+                .disabled(appModel.dirtyParamCount == 0)
+
+                Divider()
+
+                Button("Send Section…")
+                {
+                    showSectionSheet = true
+                }
             }
+            label:
+            {
+                Text(appModel.sendInProgress ? "SENDING…" : "SEND")
+            }
+            .disabled(appModel.sendInProgress)
             .keyboardShortcut(.return, modifiers: [.command, .shift])
+            .sheet(isPresented: $showSectionSheet)
+            {
+                VStack(alignment: .leading, spacing: 12)
+                {
+                    Text("Send Section")
+                        .font(.title2)
+                    Text("Choose a section to send as IPR SysEx.")
+                        .foregroundStyle(.secondary)
+
+                    Picker("Section", selection: $selectedSection)
+                    {
+                        ForEach([PGParameter.Group.dco, .vcf, .hpf, .vca, .lfo, .env, .chorus, .bender], id: \.rawValue) { g in
+                            Text(g.rawValue).tag(g)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    HStack
+                    {
+                        Button("Cancel") { showSectionSheet = false }
+                        Spacer()
+                        Button("Send")
+                        {
+                            showSectionSheet = false
+                            Task { await appModel.manualSendSection(group: selectedSection, interMessageDelayMs: UInt64(max(0, prefs.interMessageDelayMs))) }
+                        }
+                        .keyboardShortcut(.defaultAction)
+                    }
+                }
+                .padding(18)
+                .frame(width: 520)
+            }
         }
     }
 }
@@ -330,11 +463,23 @@ struct StatusBarView: View
                     .font(.caption)
             }
 
-            Text("Pending: \(appModel.pendingCount)")
+            Text("Dirty: \(appModel.dirtyParamCount)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            if let last = appModel.lastSentHex
+            if appModel.sendInProgress
+            {
+                Text("\(appModel.sendMode ?? "Send") \(appModel.sendSentCount)/\(max(1, appModel.sendTotalCount))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ProgressView(value: Double(appModel.sendSentCount), total: Double(max(1, appModel.sendTotalCount)))
+                    .frame(width: 160)
+                Button("Cancel")
+                {
+                    Task { await appModel.cancelManualSend() }
+                }
+            }
+            else if let last = appModel.lastSentHex
             {
                 Text("Last SysEx: \(last)")
                     .font(.caption2)
