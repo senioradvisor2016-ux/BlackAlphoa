@@ -4,12 +4,14 @@ import SwiftUI
 struct BlackAlphaJunoEditorApp: App
 {
     @StateObject private var prefs = PreferencesModel()
+    @StateObject private var toneMeta = ToneMetaStore()
 
     var body: some Scene
     {
         WindowGroup
         {
             ContentView(prefs: prefs)
+                .environmentObject(toneMeta)
         }
         .windowResizability(.contentSize)
 

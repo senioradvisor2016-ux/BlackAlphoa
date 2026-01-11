@@ -21,6 +21,16 @@ struct PreferencesView: View
             Section("UI")
             {
                 Toggle("Show SysEx hex in status bar", isOn: $prefs.showHexInStatusBar)
+                Picker("Control style", selection: Binding(get: {
+                    prefs.controlStyle
+                }, set: { newValue in
+                    prefs.controlStyle = newValue
+                }))
+                {
+                    ForEach(PreferencesModel.ControlStyle.allCases, id: \.rawValue) { style in
+                        Text(style.rawValue.capitalized).tag(style)
+                    }
+                }
                 Picker("Takeover mode", selection: Binding(get: {
                     prefs.takeoverMode
                 }, set: { newValue in

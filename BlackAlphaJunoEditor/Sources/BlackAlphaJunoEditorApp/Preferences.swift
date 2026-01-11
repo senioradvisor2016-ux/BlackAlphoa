@@ -12,6 +12,19 @@ final class PreferencesModel: ObservableObject
     // UI behavior
     @AppStorage("prefs.showHexInStatusBar") var showHexInStatusBar: Bool = true
 
+    enum ControlStyle: String, CaseIterable
+    {
+        case slider
+        case knob
+    }
+
+    @AppStorage("prefs.controlStyle") var controlStyleRaw: String = ControlStyle.slider.rawValue
+    var controlStyle: ControlStyle
+    {
+        get { ControlStyle(rawValue: controlStyleRaw) ?? .slider }
+        set { controlStyleRaw = newValue.rawValue }
+    }
+
     enum TakeoverMode: String, CaseIterable
     {
         case jump

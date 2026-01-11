@@ -4,6 +4,7 @@ import AlphaJunoCore
 struct EditorView: View
 {
     @ObservedObject var appModel: AppViewModel
+    @ObservedObject var prefs: PreferencesModel
 
     var body: some View
     {
@@ -17,7 +18,7 @@ struct EditorView: View
                         let params = PG300Parameters.all
                             .filter { $0.group == section.group }
                             .sorted { $0.id < $1.id }
-                        ParamGrid(params: params, appModel: appModel)
+                        ParamGrid(params: params, appModel: appModel, prefs: prefs)
                             .padding(.top, 6)
                     }
                 }
@@ -46,6 +47,7 @@ private struct ParamGrid: View
 {
     let params: [PGParameter]
     @ObservedObject var appModel: AppViewModel
+    @ObservedObject var prefs: PreferencesModel
 
     private let columns: [GridItem] =
     [
@@ -57,7 +59,7 @@ private struct ParamGrid: View
         LazyVGrid(columns: columns, alignment: .leading, spacing: 12)
         {
             ForEach(params, id: \.id) { p in
-                ParamControl(parameter: p, value: Binding(get: {
+                ParamControl(parameter: p, prefs: prefs, value: Binding(get: {
                     Int(appModel.paramValues[p.id] ?? 0)
                 }, set: { newV in
                     appModel.setParamValue(UInt8(clamping: newV), for: p.id)
@@ -70,32 +72,56 @@ private struct ParamGrid: View
 private struct ParamControl: View
 {
     let parameter: PGParameter
+    let prefs: PreferencesModel
     @Binding var value: Int
 
     var body: some View
     {
-        VStack(alignment: .leading, spacing: 6)
+        switch parameter.range
         {
-            HStack
+        case let .continuous(min, max):
+            if prefs.controlStyle == .knob
             {
-                Text(parameter.name)
-                    .font(.subheadline)
-                Spacer()
-                Text("\(value)")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                KnobControl(title: parameter.name, min: Int(min), max: Int(max), value: $value)
+            }
+            else
+            {
+                VStack(alignment: .leading, spacing: 6)
+                {
+                    HStack
+                    {
+                        Text(parameter.name)
+                            .font(.subheadline)
+                        Spacer()
+                        Text("\(value)")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Slider(
+                        value: Binding(get: { Double(value) }, set: { value = Int($0.rounded()) }),
+                        in: Double(min)...Double(max),
+                        step: 1
+                    )
+                }
+                .padding(10)
+                .background(.thinMaterial)
+                .cornerRadius(10)
             }
 
-            switch parameter.range
+        case let .discrete(min, max, labels):
+            VStack(alignment: .leading, spacing: 6)
             {
-            case let .continuous(min, max):
-                Slider(
-                    value: Binding(get: { Double(value) }, set: { value = Int($0.rounded()) }),
-                    in: Double(min)...Double(max),
-                    step: 1
-                )
+                HStack
+                {
+                    Text(parameter.name)
+                        .font(.subheadline)
+                    Spacer()
+                    Text("\(value)")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
 
-            case let .discrete(min, max, labels):
                 if let labels, labels.count == Int(max - min + 1), labels.count <= 4
                 {
                     Picker("", selection: $value)
@@ -121,10 +147,10 @@ private struct ParamControl: View
                     }
                 }
             }
+            .padding(10)
+            .background(.thinMaterial)
+            .cornerRadius(10)
         }
-        .padding(10)
-        .background(.thinMaterial)
-        .cornerRadius(10)
     }
 }
 

@@ -24,7 +24,7 @@ struct ContentView: View
                 LibrarianView(model: librarianModel)
                     .frame(minWidth: 320, idealWidth: 360)
 
-                EditorView(appModel: appModel)
+                EditorView(appModel: appModel, prefs: prefs)
                     .frame(minWidth: 700, idealWidth: 900)
             }
             .frame(minHeight: 620)

@@ -7,6 +7,11 @@ struct LibrarianView: View
     @ObservedObject var model: LibrarianViewModel
     @State private var searchText: String = ""
     @State private var isDropping: Bool = false
+    @State private var favoritesOnly: Bool = false
+    @State private var tagFilter: String = ""
+    @State private var newTag: String = ""
+
+    @EnvironmentObject private var toneMeta: ToneMetaStore
 
     var body: some View
     {
@@ -38,6 +43,9 @@ struct LibrarianView: View
                 {
                     Button("Clear") { searchText = "" }
                 }
+
+                Toggle("Favorites", isOn: $favoritesOnly)
+                    .toggleStyle(.switch)
             }
             .padding(.horizontal, 12)
 
@@ -47,7 +55,7 @@ struct LibrarianView: View
             {
                 List(selection: $model.selectedToneIndex)
                 {
-                    ForEach(model.filteredTones(search: searchText), id: \.index) { t in
+                    ForEach(filteredTones(), id: \.index) { t in
                         HStack
                         {
                             Text(String(format: "%02d", t.index + 1))
@@ -57,6 +65,14 @@ struct LibrarianView: View
                             Text(t.name)
                                 .lineLimit(1)
                             Spacer()
+
+                            if let bankId = model.currentBankId
+                            {
+                                let fav = toneMeta.isFavorite(bankId: bankId, toneIndex: t.index)
+                                Image(systemName: fav ? "star.fill" : "star")
+                                    .font(.caption)
+                                    .foregroundStyle(fav ? .yellow : .secondary)
+                            }
                         }
                         .tag(Optional(t.index))
                     }
@@ -72,6 +88,62 @@ struct LibrarianView: View
 
                 VStack(alignment: .leading, spacing: 10)
                 {
+                    if let bankId = model.currentBankId, let idx = model.selectedToneIndex
+                    {
+                        HStack
+                        {
+                            Toggle("Favorite", isOn: Binding(get: {
+                                toneMeta.isFavorite(bankId: bankId, toneIndex: idx)
+                            }, set: { v in
+                                toneMeta.setFavorite(bankId: bankId, toneIndex: idx, v)
+                            }))
+                            .toggleStyle(.switch)
+
+                            Spacer()
+
+                            Menu("Tag filter")
+                            {
+                                Button("None") { tagFilter = "" }
+                                ForEach(allTags().sorted(), id: \.self) { t in
+                                    Button(t) { tagFilter = t }
+                                }
+                            }
+                        }
+
+                        let tags = toneMeta.tags(bankId: bankId, toneIndex: idx)
+                        if !tags.isEmpty
+                        {
+                            HStack(spacing: 6)
+                            {
+                                Text("Tags:")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                ForEach(tags, id: \.self) { t in
+                                    Button(t)
+                                    {
+                                        toneMeta.removeTag(bankId: bankId, toneIndex: idx, tag: t)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+                            }
+                        }
+
+                        HStack(spacing: 8)
+                        {
+                            TextField("Add tag…", text: $newTag)
+                                .textFieldStyle(.roundedBorder)
+                            Button("Add")
+                            {
+                                toneMeta.addTag(bankId: bankId, toneIndex: idx, tag: newTag)
+                                newTag = ""
+                            }
+                            .disabled(newTag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+
+                        Divider()
+                    }
+
                     if !model.blackAlphaPrograms.isEmpty
                     {
                         Text("Imported .FXB (names only)")
@@ -204,6 +276,34 @@ struct LibrarianView: View
             model.handleDBExportResult(result)
         }
     }
+
+    private func filteredTones() -> [LibrarianViewModel.ToneRow]
+    {
+        let base = model.filteredTones(search: searchText)
+        guard let bankId = model.currentBankId else { return base }
+
+        var out = base
+        if favoritesOnly
+        {
+            out = out.filter { toneMeta.isFavorite(bankId: bankId, toneIndex: $0.index) }
+        }
+        if !tagFilter.isEmpty
+        {
+            out = out.filter { toneMeta.tags(bankId: bankId, toneIndex: $0.index).contains(tagFilter) }
+        }
+        return out
+    }
+
+    private func allTags() -> Set<String>
+    {
+        guard let bankId = model.currentBankId else { return [] }
+        var s: Set<String> = []
+        for t in model.tones
+        {
+            s.formUnion(toneMeta.tags(bankId: bankId, toneIndex: t.index))
+        }
+        return s
+    }
 }
 
 @MainActor
@@ -239,6 +339,7 @@ final class LibrarianViewModel: ObservableObject
     @Published var blackAlphaPrograms: [BlackAlphaProgramRow] = []
     @Published var blackAlphaDBPrograms: [BlackAlphaDBProgramRow] = []
     private var blackAlphaDBFullPrograms: [BlackAlphaProgramsDB.Program] = []
+    @Published var currentBankId: String?
 
     @Published var selectedToneIndex: Int?
     @Published var editName: String = ""
@@ -341,6 +442,7 @@ final class LibrarianViewModel: ObservableObject
         do
         {
             let data = try Data(contentsOf: url)
+            self.currentBankId = BankIdentifier.id(for: data)
             let bank = try SyxBank.parseBankFileBytes(Array(data))
             self.bank = bank
             self.tones = bank.tones.map { ToneRow(index: $0.index, name: $0.name) }
