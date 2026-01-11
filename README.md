@@ -4,6 +4,42 @@
 
 Det här repot innehåller en **standalone JUCE-app** som är tänkt som en startpunkt för en Alpha Juno-2 editor/librarian via **MIDI SysEx**.
 
+### Bygga (macOS)
+
+Förutsättningar:
+
+- **Xcode Command Line Tools**:
+
+```bash
+xcode-select --install
+```
+
+- **CMake** (valfritt: Ninja). Enkelt via Homebrew:
+
+```bash
+brew install cmake ninja
+```
+
+Bygg:
+
+```bash
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+Kör (macOS bygger en `.app`-bundle):
+
+```bash
+open build/AlphaJuno2Editor_artefacts/Release/"Alpha Juno-2 Editor".app
+```
+
+Alternativt kan du generera ett Xcode-projekt:
+
+```bash
+cmake -B build-xcode -G Xcode
+cmake --build build-xcode --config Release
+```
+
 ### Bygga (Linux)
 
 Installera vanliga JUCE-beroenden (GTK + ljud/MIDI):
