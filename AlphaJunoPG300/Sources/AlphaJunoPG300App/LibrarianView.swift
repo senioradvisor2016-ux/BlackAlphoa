@@ -16,6 +16,7 @@ struct LibrarianView: View
                     .font(.headline)
                 Spacer()
                 Button("Load .SYX") { model.showImporter = true }
+                Button("Import .FXB") { model.showFXBImporter = true }
                 Button("Export .SYX") { model.prepareExport() }
                     .disabled(model.bank == nil)
             }
@@ -53,6 +54,26 @@ struct LibrarianView: View
 
                 VStack(alignment: .leading, spacing: 10)
                 {
+                    if !model.rekonPrograms.isEmpty
+                    {
+                        Text("Imported .FXB (names only)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        ScrollView
+                        {
+                            VStack(alignment: .leading, spacing: 4)
+                            {
+                                ForEach(model.rekonPrograms, id: \.index) { p in
+                                    Text("\(p.index + 1). \(p.name)")
+                                        .font(.system(.caption, design: .monospaced))
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+                        .frame(maxHeight: 140)
+                        Divider()
+                    }
+
                     Text("Tone Name (max 10 chars)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -95,6 +116,13 @@ struct LibrarianView: View
         ) { result in
             model.handleImportResult(result)
         }
+        .fileImporter(
+            isPresented: $model.showFXBImporter,
+            allowedContentTypes: [UTType(filenameExtension: "fxb") ?? .data],
+            allowsMultipleSelection: false
+        ) { result in
+            model.handleFXBImportResult(result)
+        }
         .fileExporter(
             isPresented: $model.showExporter,
             document: model.exportDocument,
@@ -115,14 +143,23 @@ final class LibrarianViewModel: ObservableObject
         let name: String
     }
 
+    struct RekonProgramRow
+    {
+        let index: Int
+        let name: String
+        let data: String
+    }
+
     @Published var bank: SyxBank?
     @Published var tones: [ToneRow] = []
+    @Published var rekonPrograms: [RekonProgramRow] = []
 
     @Published var selectedToneIndex: Int?
     @Published var editName: String = ""
     @Published var error: String?
 
     @Published var showImporter: Bool = false
+    @Published var showFXBImporter: Bool = false
     @Published var showExporter: Bool = false
 
     var exportDocument: SyxDocument?
@@ -140,6 +177,23 @@ final class LibrarianViewModel: ObservableObject
             self.tones = bank.tones.map { ToneRow(index: $0.index, name: $0.name) }
             self.selectedToneIndex = 0
             self.editName = bank.tones.first?.name ?? ""
+            self.error = nil
+        }
+        catch
+        {
+            self.error = String(describing: error)
+        }
+    }
+
+    func handleFXBImportResult(_ result: Result<[URL], Error>)
+    {
+        do
+        {
+            let urls = try result.get()
+            guard let url = urls.first else { return }
+            let data = try Data(contentsOf: url)
+            let programs = try ReKonFXB.parsePrograms(fromVC2Bytes: Array(data))
+            self.rekonPrograms = programs.map { RekonProgramRow(index: $0.index, name: $0.name, data: $0.data) }
             self.error = nil
         }
         catch
