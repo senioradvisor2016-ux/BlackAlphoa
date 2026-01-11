@@ -3,6 +3,18 @@ import Foundation
 #if canImport(CoreMIDI)
 import CoreMIDI
 
+// MIDISendSysex requires the request struct to remain alive until complete.
+// We heap-allocate the request, free the data buffer in this callback,
+// and free the request after we observe completion.
+private let sysexCompletionProc: MIDISysexSendRequestCompletionProc = { requestPtr in
+    guard let requestPtr else { return }
+    if let dataPtr = requestPtr.pointee.data
+    {
+        dataPtr.deallocate()
+        requestPtr.pointee.data = nil
+    }
+}
+
 public final class CoreMIDIManager: @unchecked Sendable
 {
     public struct Endpoint: Identifiable, Equatable, Sendable
@@ -23,6 +35,7 @@ public final class CoreMIDIManager: @unchecked Sendable
     {
         case noDestinationSelected
         case coreMIDI(OSStatus)
+        case timeout(seconds: Double)
 
         public var description: String
         {
@@ -30,6 +43,7 @@ public final class CoreMIDIManager: @unchecked Sendable
             {
             case .noDestinationSelected: return "No MIDI destination selected."
             case let .coreMIDI(s): return "CoreMIDI error \(s)."
+            case let .timeout(seconds): return "SysEx send timed out after \(seconds)s."
             }
         }
     }
@@ -112,7 +126,9 @@ public final class CoreMIDIManager: @unchecked Sendable
         guard st == noErr else { throw Error.coreMIDI(st) }
     }
 
-    public func sendSysEx(_ bytes: [UInt8]) throws
+    /// Sends a SysEx message to the selected destination.
+    /// Note: this awaits completion to avoid overlapping SysEx requests (important for rapid IPR bursts).
+    public func sendSysEx(_ bytes: [UInt8], timeoutSeconds: Double = 1.0) async throws
     {
         guard let dest = selectedDestination else { throw Error.noDestinationSelected }
         guard bytes.first == 0xF0, bytes.last == 0xF7 else { throw Error.coreMIDI(-4) }
@@ -122,23 +138,39 @@ public final class CoreMIDIManager: @unchecked Sendable
         let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: data.count)
         data.copyBytes(to: ptr, count: data.count)
 
-        var req = MIDISysexSendRequest()
-        req.destination = dest.endpoint
-        req.data = ptr
-        req.bytesToSend = UInt32(data.count)
-        req.complete = false
-        req.completionProc = { requestPtr in
-            guard let requestPtr else { return }
-            requestPtr.pointee.data.deallocate()
-        }
-        req.completionRefCon = nil
+        let req = UnsafeMutablePointer<MIDISysexSendRequest>.allocate(capacity: 1)
+        req.initialize(to: MIDISysexSendRequest())
+        req.pointee.destination = dest.endpoint
+        req.pointee.data = ptr
+        req.pointee.bytesToSend = UInt32(data.count)
+        req.pointee.complete = false
+        req.pointee.completionProc = sysexCompletionProc
+        req.pointee.completionRefCon = nil
 
-        let st = MIDISendSysex(&req)
+        let st = MIDISendSysex(req)
         guard st == noErr else
         {
             ptr.deallocate()
+            req.deallocate()
             throw Error.coreMIDI(st)
         }
+
+        // Wait for completion (avoid parallel SysEx requests).
+        // Also wait until `data` has been nilled by the completionProc, so we don't race deallocation.
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while !(req.pointee.complete && req.pointee.data == nil)
+        {
+            if Date() > deadline
+            {
+                // Important: do NOT deallocate `req` here; CoreMIDI may still be using it.
+                // This is a controlled leak only in the timeout case.
+                throw Error.timeout(seconds: timeoutSeconds)
+            }
+            try await Task.sleep(nanoseconds: 2_000_000) // 2ms
+        }
+
+        req.deinitialize(count: 1)
+        req.deallocate()
     }
 
     private static func fetchDestinations() -> [Endpoint]
@@ -179,7 +211,36 @@ public final class CoreMIDIManager: @unchecked Sendable
 // Linux/CI-friendly stub (CoreMIDI is macOS-only).
 public final class CoreMIDIManager: Sendable
 {
+    public struct Endpoint: Identifiable, Equatable, Sendable
+    {
+        public let id: Int
+        public let name: String
+        public init(id: Int, name: String) { self.id = id; self.name = name }
+        public var endpoint: Int { id }
+    }
+
+    public enum Error: Swift.Error, CustomStringConvertible
+    {
+        case unsupported
+        public var description: String { "CoreMIDI is not available on this platform." }
+    }
+
     public init() throws {}
+
+    public private(set) var destinations: [Endpoint] = []
+    public private(set) var sources: [Endpoint] = []
+    public var selectedDestination: Endpoint?
+    public var selectedSource: Endpoint?
+    public var mergeEnabled: Bool = false
+
+    public func refreshEndpoints() {}
+    public func connectSource() throws {}
+
+    public func sendSysEx(_ bytes: [UInt8], timeoutSeconds: Double = 1.0) async throws
+    {
+        _ = (bytes, timeoutSeconds)
+        throw Error.unsupported
+    }
 }
 
 #endif

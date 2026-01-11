@@ -1,6 +1,15 @@
-import Foundation
+import SwiftUI
 
-// Placeholder executable target so the package builds in CI.
-// The real macOS SwiftUI App target will be added next.
-print("AlphaJunoPG300App (placeholder). Build succeeded.")
+@main
+struct AlphaJunoPG300App: App
+{
+    var body: some Scene
+    {
+        WindowGroup
+        {
+            ContentView()
+        }
+        .windowResizability(.contentSize)
+    }
+}
 
