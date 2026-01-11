@@ -64,6 +64,12 @@ struct ContentView: View
 @MainActor
 final class AppViewModel: ObservableObject
 {
+    enum Slot: String, CaseIterable
+    {
+        case a = "A"
+        case b = "B"
+    }
+
     @Published var destinations: [CoreMIDIManager.Endpoint] = []
     @Published var sources: [CoreMIDIManager.Endpoint] = []
 
@@ -87,10 +93,22 @@ final class AppViewModel: ObservableObject
     @Published var paramValues: [UInt8: UInt8] =
         Dictionary(uniqueKeysWithValues: PG300Parameters.all.map { ($0.id, UInt8(0)) })
 
-    private var lastSentValues: [UInt8: UInt8] =
+    @Published var activeSlot: Slot = .a
+
+    private var slotAValues: [UInt8: UInt8] =
         Dictionary(uniqueKeysWithValues: PG300Parameters.all.map { ($0.id, UInt8(0)) })
+    private var slotBValues: [UInt8: UInt8] =
+        Dictionary(uniqueKeysWithValues: PG300Parameters.all.map { ($0.id, UInt8(0)) })
+
+    private var slotALastSent: [UInt8: UInt8] =
+        Dictionary(uniqueKeysWithValues: PG300Parameters.all.map { ($0.id, UInt8(0)) })
+    private var slotBLastSent: [UInt8: UInt8] =
+        Dictionary(uniqueKeysWithValues: PG300Parameters.all.map { ($0.id, UInt8(0)) })
+
+    private var slotADirty: Set<UInt8> = []
+    private var slotBDirty: Set<UInt8> = []
+
     @Published private(set) var dirtyParamCount: Int = 0
-    private var dirtyParams: Set<UInt8> = []
 
     private var session: PG300Session?
 
@@ -110,6 +128,7 @@ final class AppViewModel: ObservableObject
             await setChannel(channel)
             await setMergeEnabled(false)
             await setLiveSendEnabled(false)
+            await applyCurrentSlotToSession()
 
             // Periodic status polling (UI only).
             Task { [weak self] in
@@ -203,15 +222,7 @@ final class AppViewModel: ObservableObject
     func setParamValue(_ v: UInt8, for param: UInt8)
     {
         paramValues[param] = v
-        if lastSentValues[param] != v
-        {
-            dirtyParams.insert(param)
-        }
-        else
-        {
-            dirtyParams.remove(param)
-        }
-        dirtyParamCount = dirtyParams.count
+        updateDirtyForActiveSlot(param: param, value: v)
 
         guard let session else { return }
         Task { await session.setValue(param: param, value: v) }
@@ -231,23 +242,23 @@ final class AppViewModel: ObservableObject
         await pullStatus()
         if lastError == nil
         {
-            lastSentValues = paramValues
-            dirtyParams.removeAll(keepingCapacity: true)
-            dirtyParamCount = 0
+            setLastSentForActiveSlot(paramValues)
+            clearDirtyForActiveSlot()
         }
     }
 
     func manualSendChanged(interMessageDelayMs: UInt64) async
     {
         guard let session else { return }
-        let params = dirtyParams.sorted()
+        let params = dirtySetForActiveSlot().sorted()
         await session.manualSend(params: params, mode: "Changed", interMessageDelayMs: interMessageDelayMs)
         await pullStatus()
         if lastError == nil
         {
-            for p in params { lastSentValues[p] = paramValues[p] ?? 0 }
-            dirtyParams.subtract(params)
-            dirtyParamCount = dirtyParams.count
+            var last = lastSentForActiveSlot()
+            for p in params { last[p] = paramValues[p] ?? 0 }
+            setLastSentForActiveSlot(last)
+            subtractDirtyForActiveSlot(params)
         }
     }
 
@@ -259,9 +270,10 @@ final class AppViewModel: ObservableObject
         await pullStatus()
         if lastError == nil
         {
-            for p in params { lastSentValues[p] = paramValues[p] ?? 0 }
-            dirtyParams.subtract(params)
-            dirtyParamCount = dirtyParams.count
+            var last = lastSentForActiveSlot()
+            for p in params { last[p] = paramValues[p] ?? 0 }
+            setLastSentForActiveSlot(last)
+            subtractDirtyForActiveSlot(params)
         }
     }
 
@@ -303,6 +315,146 @@ final class AppViewModel: ObservableObject
         sendMode = st.sendMode
         throttleHz = st.throttleHz
     }
+
+    // MARK: - Slots / A-B
+
+    func switchSlot(_ newSlot: Slot) async
+    {
+        guard newSlot != activeSlot else { return }
+
+        // Save current view to current slot storage
+        setValuesForSlot(activeSlot, values: paramValues)
+
+        activeSlot = newSlot
+        paramValues = valuesForSlot(newSlot)
+        recomputeDirtyCount()
+
+        await applyCurrentSlotToSession()
+    }
+
+    func copyActiveToOther() async
+    {
+        let other: Slot = (activeSlot == .a) ? .b : .a
+        setValuesForSlot(other, values: paramValues)
+        // Do not affect dirty of other; it will be recomputed when user switches to it.
+    }
+
+    func swapSlots() async
+    {
+        // Save current to storage first
+        setValuesForSlot(activeSlot, values: paramValues)
+        let a = valuesForSlot(.a)
+        let b = valuesForSlot(.b)
+        setValuesForSlot(.a, values: b)
+        setValuesForSlot(.b, values: a)
+
+        // Keep active slot as-is, reload its view
+        paramValues = valuesForSlot(activeSlot)
+        recomputeDirtyCount()
+        await applyCurrentSlotToSession()
+    }
+
+    func revertActiveToLastSent() async
+    {
+        let last = lastSentForActiveSlot()
+        paramValues = last
+        setValuesForSlot(activeSlot, values: last)
+        clearDirtyForActiveSlot()
+        await applyCurrentSlotToSession()
+    }
+
+    // MARK: - Internals
+
+    private func applyCurrentSlotToSession() async
+    {
+        guard let session else { return }
+        for (p, v) in paramValues
+        {
+            await session.setValue(param: p, value: v)
+        }
+    }
+
+    private func valuesForSlot(_ slot: Slot) -> [UInt8: UInt8]
+    {
+        switch slot
+        {
+        case .a: return slotAValues
+        case .b: return slotBValues
+        }
+    }
+
+    private func setValuesForSlot(_ slot: Slot, values: [UInt8: UInt8])
+    {
+        switch slot
+        {
+        case .a: slotAValues = values
+        case .b: slotBValues = values
+        }
+    }
+
+    private func lastSentForActiveSlot() -> [UInt8: UInt8]
+    {
+        switch activeSlot
+        {
+        case .a: return slotALastSent
+        case .b: return slotBLastSent
+        }
+    }
+
+    private func setLastSentForActiveSlot(_ values: [UInt8: UInt8])
+    {
+        switch activeSlot
+        {
+        case .a: slotALastSent = values
+        case .b: slotBLastSent = values
+        }
+    }
+
+    private func dirtySetForActiveSlot() -> Set<UInt8>
+    {
+        switch activeSlot
+        {
+        case .a: return slotADirty
+        case .b: return slotBDirty
+        }
+    }
+
+    private func updateDirtyForActiveSlot(param: UInt8, value: UInt8)
+    {
+        var dirty = dirtySetForActiveSlot()
+        let last = lastSentForActiveSlot()
+        if last[param] != value { dirty.insert(param) } else { dirty.remove(param) }
+        setDirtyForActiveSlot(dirty)
+        dirtyParamCount = dirty.count
+    }
+
+    private func setDirtyForActiveSlot(_ dirty: Set<UInt8>)
+    {
+        switch activeSlot
+        {
+        case .a: slotADirty = dirty
+        case .b: slotBDirty = dirty
+        }
+    }
+
+    private func clearDirtyForActiveSlot()
+    {
+        setDirtyForActiveSlot([])
+        dirtyParamCount = 0
+    }
+
+    private func subtractDirtyForActiveSlot(_ params: [UInt8])
+    {
+        var dirty = dirtySetForActiveSlot()
+        dirty.subtract(params)
+        setDirtyForActiveSlot(dirty)
+        dirtyParamCount = dirty.count
+    }
+
+    private func recomputeDirtyCount()
+    {
+        dirtyParamCount = dirtySetForActiveSlot().count
+    }
 }
 
 struct TopBarView: View
@@ -327,6 +479,37 @@ struct TopBarView: View
             }
 
             Spacer()
+
+            Picker("Slot", selection: Binding(get: {
+                appModel.activeSlot
+            }, set: { newValue in
+                Task { await appModel.switchSlot(newValue) }
+            }))
+            {
+                ForEach(AppViewModel.Slot.allCases, id: \.rawValue) { s in
+                    Text(s.rawValue).tag(s)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 110)
+
+            Menu("A/B")
+            {
+                Button("Copy \(appModel.activeSlot.rawValue) → \((appModel.activeSlot == .a) ? "B" : "A")")
+                {
+                    Task { await appModel.copyActiveToOther() }
+                }
+                Button("Swap A ↔ B")
+                {
+                    Task { await appModel.swapSlots() }
+                }
+                Divider()
+                Button("Revert \(appModel.activeSlot.rawValue) to last sent")
+                {
+                    Task { await appModel.revertActiveToLastSent() }
+                }
+                .disabled(appModel.dirtyParamCount == 0)
+            }
 
             Button
             {
@@ -463,7 +646,7 @@ struct StatusBarView: View
                     .font(.caption)
             }
 
-            Text("Dirty: \(appModel.dirtyParamCount)")
+            Text("Slot \(appModel.activeSlot.rawValue) • Dirty: \(appModel.dirtyParamCount)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

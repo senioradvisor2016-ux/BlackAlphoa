@@ -5,6 +5,8 @@ import AlphaJunoCore
 struct LibrarianView: View
 {
     @ObservedObject var model: LibrarianViewModel
+    @State private var searchText: String = ""
+    @State private var isDropping: Bool = false
 
     var body: some View
     {
@@ -28,13 +30,24 @@ struct LibrarianView: View
             .padding(.horizontal, 12)
             .padding(.top, 12)
 
+            HStack(spacing: 10)
+            {
+                TextField("Search tones…", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                if !searchText.isEmpty
+                {
+                    Button("Clear") { searchText = "" }
+                }
+            }
+            .padding(.horizontal, 12)
+
             Divider()
 
             HSplitView
             {
                 List(selection: $model.selectedToneIndex)
                 {
-                    ForEach(model.tones, id: \.index) { t in
+                    ForEach(model.filteredTones(search: searchText), id: \.index) { t in
                         HStack
                         {
                             Text(String(format: "%02d", t.index + 1))
@@ -98,6 +111,7 @@ struct LibrarianView: View
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: model.editName) { _, newValue in
                             if newValue.count > 10 { model.editName = String(newValue.prefix(10)) }
+                            model.validateToneName()
                         }
 
                     HStack
@@ -110,7 +124,7 @@ struct LibrarianView: View
                         {
                             model.applyRename()
                         }
-                        .disabled(model.selectedToneIndex == nil || model.bank == nil)
+                        .disabled(model.selectedToneIndex == nil || model.bank == nil || !model.isToneNameValid)
                     }
 
                     if let err = model.error
@@ -124,6 +138,25 @@ struct LibrarianView: View
                 }
                 .padding(12)
             }
+        }
+        .overlay
+        {
+            if isDropping
+            {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(.blue, style: StrokeStyle(lineWidth: 3, dash: [8, 6]))
+                    .padding(12)
+                    .overlay(
+                        Text("Drop .syx / .fxb / .db")
+                            .font(.headline)
+                            .padding(12)
+                            .background(.ultraThinMaterial)
+                            .cornerRadius(10)
+                    )
+            }
+        }
+        .onDrop(of: [UTType.fileURL], isTargeted: $isDropping) { providers in
+            model.handleDrop(providers: providers)
         }
         .fileImporter(
             isPresented: $model.showImporter,
@@ -210,6 +243,7 @@ final class LibrarianViewModel: ObservableObject
     @Published var selectedToneIndex: Int?
     @Published var editName: String = ""
     @Published var error: String?
+    @Published var isToneNameValid: Bool = true
 
     @Published var showImporter: Bool = false
     @Published var showFXBImporter: Bool = false
@@ -227,12 +261,85 @@ final class LibrarianViewModel: ObservableObject
     var exportDBDocument: SyxDocument?
     var exportDBFilename: String = "VST-AU Alpha JUNO Editor.db"
 
+    func filteredTones(search: String) -> [ToneRow]
+    {
+        let s = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return tones }
+        return tones.filter { $0.name.localizedCaseInsensitiveContains(s) }
+    }
+
+    func validateToneName()
+    {
+        do
+        {
+            _ = try ToneNameCodec.encode(name: editName)
+            isToneNameValid = true
+        }
+        catch
+        {
+            isToneNameValid = false
+            // Don't override a more important error if one is already shown.
+            if error == nil
+            {
+                self.error = "Tone Name contains unsupported characters (allowed: A–Z a–z 0–9 space '-')."
+            }
+        }
+
+        if isToneNameValid, error?.contains("unsupported characters") == true
+        {
+            error = nil
+        }
+    }
+
+    func handleDrop(providers: [NSItemProvider]) -> Bool
+    {
+        for p in providers
+        {
+            p.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                guard let data = item as? Data,
+                      let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                DispatchQueue.main.async { [weak self] in
+                    self?.importFile(url: url)
+                }
+            }
+        }
+        return true
+    }
+
+    private func importFile(url: URL)
+    {
+        let ext = url.pathExtension.lowercased()
+        switch ext
+        {
+        case "syx":
+            handleImportURL(url)
+        case "fxb":
+            handleFXBImportURL(url)
+        case "db":
+            handleDBImportURL(url)
+        default:
+            error = "Unsupported drop file type: .\(ext)"
+        }
+    }
+
     func handleImportResult(_ result: Result<[URL], Error>)
     {
         do
         {
             let urls = try result.get()
             guard let url = urls.first else { return }
+            handleImportURL(url)
+        }
+        catch
+        {
+            self.error = String(describing: error)
+        }
+    }
+
+    private func handleImportURL(_ url: URL)
+    {
+        do
+        {
             let data = try Data(contentsOf: url)
             let bank = try SyxBank.parseBankFileBytes(Array(data))
             self.bank = bank
@@ -240,6 +347,7 @@ final class LibrarianViewModel: ObservableObject
             self.selectedToneIndex = 0
             self.editName = bank.tones.first?.name ?? ""
             self.error = nil
+            validateToneName()
         }
         catch
         {
@@ -253,6 +361,18 @@ final class LibrarianViewModel: ObservableObject
         {
             let urls = try result.get()
             guard let url = urls.first else { return }
+            handleFXBImportURL(url)
+        }
+        catch
+        {
+            self.error = String(describing: error)
+        }
+    }
+
+    private func handleFXBImportURL(_ url: URL)
+    {
+        do
+        {
             let data = try Data(contentsOf: url)
             let programs = try BlackAlphaFXB.parsePrograms(fromVC2Bytes: Array(data))
             self.blackAlphaPrograms = programs.map { BlackAlphaProgramRow(index: $0.index, name: $0.name, data: $0.data) }
@@ -270,6 +390,18 @@ final class LibrarianViewModel: ObservableObject
         {
             let urls = try result.get()
             guard let url = urls.first else { return }
+            handleDBImportURL(url)
+        }
+        catch
+        {
+            self.error = String(describing: error)
+        }
+    }
+
+    private func handleDBImportURL(_ url: URL)
+    {
+        do
+        {
             let programs = try BlackAlphaProgramsDB.load(url: url)
             self.blackAlphaDBFullPrograms = programs
             self.blackAlphaDBPrograms = programs.map {
@@ -305,6 +437,7 @@ final class LibrarianViewModel: ObservableObject
             self.bank = bank
             self.tones = bank.tones.map { ToneRow(index: $0.index, name: $0.name) }
             self.error = nil
+            validateToneName()
         }
         catch
         {
