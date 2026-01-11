@@ -195,7 +195,7 @@ struct TopBarView: View
         {
             VStack(alignment: .leading, spacing: 2)
             {
-                Text("Alpha Juno-2 / MKS-50 PG-300 Editor")
+                Text("BlackAlpha — Alpha Juno-2 / MKS-50 Editor")
                     .font(.headline)
                 Text("IPR SysEx • Manual Send default")
                     .font(.caption)

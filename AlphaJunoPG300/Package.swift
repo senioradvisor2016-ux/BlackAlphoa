@@ -9,7 +9,7 @@ let package = Package(
     products: [
         .library(name: "AlphaJunoCore", targets: ["AlphaJunoCore"]),
         .library(name: "AlphaJunoMIDI", targets: ["AlphaJunoMIDI"]),
-        .executable(name: "AlphaJunoPG300App", targets: ["AlphaJunoPG300App"])
+        .executable(name: "BlackAlphaJunoEditor", targets: ["BlackAlphaJunoEditorApp"])
     ],
     targets: [
         .target(
@@ -22,7 +22,7 @@ let package = Package(
             path: "Sources/AlphaJunoMIDI"
         ),
         .executableTarget(
-            name: "AlphaJunoPG300App",
+            name: "BlackAlphaJunoEditorApp",
             dependencies: ["AlphaJunoCore", "AlphaJunoMIDI"],
             path: "Sources/AlphaJunoPG300App"
         ),

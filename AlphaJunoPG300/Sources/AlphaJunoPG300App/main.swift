@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct AlphaJunoPG300App: App
+struct BlackAlphaJunoEditorApp: App
 {
     var body: some Scene
     {

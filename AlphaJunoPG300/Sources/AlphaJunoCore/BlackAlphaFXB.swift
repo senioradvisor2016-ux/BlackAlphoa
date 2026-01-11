@@ -1,14 +1,14 @@
 import Foundation
 
-/// Parser for the reKon `*.fxb` bank observed in the installer.
+/// Parser for the `*.fxb` bank format we support.
 ///
-/// This bank is a VC2 container whose XML root tag looked like:
+/// This bank is a VC2 container whose XML root tag looks like:
 /// `VST.AU.Alpha.JUNO.EditorAllBanks`
 ///
 /// The XML stores 64 programs as attributes:
 /// - `ProgramName0`..`ProgramName63`
 /// - `ProgramData0`..`ProgramData63` (opaque string; vendor-specific encoding)
-public enum ReKonFXB
+public enum BlackAlphaFXB
 {
     public struct Program: Equatable, Sendable
     {
@@ -25,7 +25,7 @@ public enum ReKonFXB
 
     public static func parsePrograms(fromXML xml: String) throws -> [Program]
     {
-        // ultra-lightweight attribute scrape (no external XML libs; FoundationXML is fine on macOS but keep core pure).
+        // ultra-lightweight attribute scrape (no external XML libs).
         // We assume a single root element with attributes and no child nodes.
         guard let rootRange = xml.range(of: "<") else { throw Error.invalidXML }
         let tail = xml[rootRange.lowerBound...]
@@ -64,7 +64,7 @@ public enum ReKonFXB
         {
             switch self
             {
-            case .invalidXML: return "Invalid reKon FXB XML."
+            case .invalidXML: return "Invalid FXB XML."
             case let .missingProgram(i): return "Missing ProgramName/ProgramData for program \(i)."
             }
         }

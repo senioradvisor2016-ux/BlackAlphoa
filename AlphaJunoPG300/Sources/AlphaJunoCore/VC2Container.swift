@@ -1,6 +1,6 @@
 import Foundation
 
-/// reKon "VC2!" container observed in:
+/// "VC2!" container observed in:
 /// - `*.rms` (preferences)
 /// - `*.fxb` (bank)
 ///

@@ -1,16 +1,16 @@
 import Foundation
 
-/// reKon stores ProgramData as a base64 string with '.' used instead of '/'.
+/// ProgramData is stored as a base64 string with '.' used instead of '/'.
 /// In the shipped SQLite `.db`, the string is also terminated with a trailing '.'.
-public enum ReKonProgramDataCodec
+public enum BlackAlphaProgramDataCodec
 {
-    /// Decode ProgramData from a vendor `.fxb` attribute value.
+    /// Decode ProgramData from a `.fxb` attribute value.
     public static func decodeFXBString(_ s: String) throws -> [UInt8]
     {
         try decodeBase64Variant(s, stripTrailingDot: false)
     }
 
-    /// Decode ProgramData from a vendor SQLite `.db` row (stored as ASCII BLOB / string).
+    /// Decode ProgramData from a SQLite `.db` row (stored as ASCII BLOB / string).
     public static func decodeDBString(_ s: String) throws -> [UInt8]
     {
         try decodeBase64Variant(s, stripTrailingDot: true)
@@ -22,7 +22,7 @@ public enum ReKonProgramDataCodec
         encodeBase64Variant(bytes: bytes, addTrailingDot: false)
     }
 
-    /// Encode ProgramData suitable for vendor `.db` (with trailing '.' terminator).
+    /// Encode ProgramData suitable for `.db` (with trailing '.' terminator).
     public static func encodeDBString(bytes: [UInt8]) -> String
     {
         encodeBase64Variant(bytes: bytes, addTrailingDot: true)

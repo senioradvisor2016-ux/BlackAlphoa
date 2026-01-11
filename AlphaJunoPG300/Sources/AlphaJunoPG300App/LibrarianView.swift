@@ -21,9 +21,9 @@ struct LibrarianView: View
                 Button("Export .SYX") { model.prepareExport() }
                     .disabled(model.bank == nil)
                 Button("Export .FXB") { model.prepareFXBExport() }
-                    .disabled(model.rekonPrograms.isEmpty)
+                    .disabled(model.blackAlphaPrograms.isEmpty)
                 Button("Export .DB") { model.prepareDBExport() }
-                    .disabled(model.rekonDBPrograms.isEmpty)
+                    .disabled(model.blackAlphaDBPrograms.isEmpty)
             }
             .padding(.horizontal, 12)
             .padding(.top, 12)
@@ -59,7 +59,7 @@ struct LibrarianView: View
 
                 VStack(alignment: .leading, spacing: 10)
                 {
-                    if !model.rekonPrograms.isEmpty
+                    if !model.blackAlphaPrograms.isEmpty
                     {
                         Text("Imported .FXB (names only)")
                             .font(.subheadline)
@@ -68,7 +68,7 @@ struct LibrarianView: View
                         {
                             VStack(alignment: .leading, spacing: 4)
                             {
-                                ForEach(model.rekonPrograms, id: \.index) { p in
+                                ForEach(model.blackAlphaPrograms, id: \.index) { p in
                                     Text("\(p.index + 1). \(p.name)")
                                         .font(.system(.caption, design: .monospaced))
                                         .lineLimit(1)
@@ -79,12 +79,12 @@ struct LibrarianView: View
                         Divider()
                     }
 
-                    if !model.rekonDBPrograms.isEmpty
+                    if !model.blackAlphaDBPrograms.isEmpty
                     {
                         Text("Imported .DB (Programs)")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        Text("Count: \(model.rekonDBPrograms.count)")
+                        Text("Count: \(model.blackAlphaDBPrograms.count)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Divider()
@@ -182,14 +182,14 @@ final class LibrarianViewModel: ObservableObject
         let name: String
     }
 
-    struct RekonProgramRow
+    struct BlackAlphaProgramRow
     {
         let index: Int
         let name: String
         let data: String
     }
 
-    struct RekonDBProgramRow
+    struct BlackAlphaDBProgramRow
     {
         let id: Int
         let name: String
@@ -203,9 +203,9 @@ final class LibrarianViewModel: ObservableObject
 
     @Published var bank: SyxBank?
     @Published var tones: [ToneRow] = []
-    @Published var rekonPrograms: [RekonProgramRow] = []
-    @Published var rekonDBPrograms: [RekonDBProgramRow] = []
-    private var rekonDBFullPrograms: [ReKonProgramsDB.Program] = []
+    @Published var blackAlphaPrograms: [BlackAlphaProgramRow] = []
+    @Published var blackAlphaDBPrograms: [BlackAlphaDBProgramRow] = []
+    private var blackAlphaDBFullPrograms: [BlackAlphaProgramsDB.Program] = []
 
     @Published var selectedToneIndex: Int?
     @Published var editName: String = ""
@@ -254,8 +254,8 @@ final class LibrarianViewModel: ObservableObject
             let urls = try result.get()
             guard let url = urls.first else { return }
             let data = try Data(contentsOf: url)
-            let programs = try ReKonFXB.parsePrograms(fromVC2Bytes: Array(data))
-            self.rekonPrograms = programs.map { RekonProgramRow(index: $0.index, name: $0.name, data: $0.data) }
+            let programs = try BlackAlphaFXB.parsePrograms(fromVC2Bytes: Array(data))
+            self.blackAlphaPrograms = programs.map { BlackAlphaProgramRow(index: $0.index, name: $0.name, data: $0.data) }
             self.error = nil
         }
         catch
@@ -270,10 +270,10 @@ final class LibrarianViewModel: ObservableObject
         {
             let urls = try result.get()
             guard let url = urls.first else { return }
-            let programs = try ReKonProgramsDB.load(url: url)
-            self.rekonDBFullPrograms = programs
-            self.rekonDBPrograms = programs.map {
-                RekonDBProgramRow(
+            let programs = try BlackAlphaProgramsDB.load(url: url)
+            self.blackAlphaDBFullPrograms = programs
+            self.blackAlphaDBPrograms = programs.map {
+                BlackAlphaDBProgramRow(
                     id: $0.id,
                     name: $0.name,
                     category: $0.category,
@@ -332,9 +332,9 @@ final class LibrarianViewModel: ObservableObject
     {
         do
         {
-            let programs = rekonPrograms.map { ReKonFXB.Program(index: $0.index, name: $0.name, data: $0.data) }
-            let bank = ReKonFXBWriter.Bank(bankName: "Bank.0", programs: programs)
-            let bytes = try ReKonFXBWriter.buildFXBBytes(from: bank)
+            let programs = blackAlphaPrograms.map { BlackAlphaFXB.Program(index: $0.index, name: $0.name, data: $0.data) }
+            let bank = BlackAlphaFXBWriter.Bank(bankName: "Bank.0", programs: programs)
+            let bytes = try BlackAlphaFXBWriter.buildFXBBytes(from: bank)
             exportFXBDocument = SyxDocument(data: Data(bytes))
             showFXBExporter = true
             error = nil
@@ -349,7 +349,7 @@ final class LibrarianViewModel: ObservableObject
     {
         do
         {
-            guard !rekonDBFullPrograms.isEmpty else
+            guard !blackAlphaDBFullPrograms.isEmpty else
             {
                 self.error = "No DB programs loaded."
                 return
@@ -357,7 +357,7 @@ final class LibrarianViewModel: ObservableObject
 
             // Create a temp file, then wrap bytes into a FileDocument for export.
             let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("db")
-            try ReKonProgramsDB.save(url: tmp, programs: rekonDBFullPrograms)
+            try BlackAlphaProgramsDB.save(url: tmp, programs: blackAlphaDBFullPrograms)
             let data = try Data(contentsOf: tmp)
             exportDBDocument = SyxDocument(data: data)
             showDBExporter = true

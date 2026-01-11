@@ -3,7 +3,7 @@ import Foundation
 #if canImport(SQLite3)
 import SQLite3
 
-public enum ReKonProgramsDB
+public enum BlackAlphaProgramsDB
 {
     public struct Program: Equatable, Sendable
     {
@@ -14,7 +14,7 @@ public enum ReKonProgramsDB
         public var rating: Int?
         public var favorite: Bool
         public var notes: String?
-        public var programData: [UInt8] // raw bytes of vendor ProgramData BLOB
+        public var programData: [UInt8]
         public var dateCreated: String?
     }
 
@@ -58,7 +58,6 @@ public enum ReKonProgramsDB
 
     public static func save(url: URL, programs: [Program]) throws
     {
-        // Create/replace
         _ = try? FileManager.default.removeItem(at: url)
 
         var db: OpaquePointer?
@@ -160,7 +159,7 @@ public enum ReKonProgramsDB
 
 #else
 
-public enum ReKonProgramsDB {}
+public enum BlackAlphaProgramsDB {}
 
 #endif
 

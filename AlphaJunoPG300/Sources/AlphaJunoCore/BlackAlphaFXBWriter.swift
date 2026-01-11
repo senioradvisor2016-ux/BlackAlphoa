@@ -1,13 +1,13 @@
 import Foundation
 
-public enum ReKonFXBWriter
+public enum BlackAlphaFXBWriter
 {
     public struct Bank: Equatable, Sendable
     {
         public var bankName: String
-        public var programs: [ReKonFXB.Program] // must be 64
+        public var programs: [BlackAlphaFXB.Program] // must be 64
 
-        public init(bankName: String, programs: [ReKonFXB.Program])
+        public init(bankName: String, programs: [BlackAlphaFXB.Program])
         {
             self.bankName = bankName
             self.programs = programs
@@ -16,8 +16,8 @@ public enum ReKonFXBWriter
 
     /// Builds a VC2 `.fxb` bytes blob from programs.
     ///
-    /// Note: `ProgramData` is treated as an opaque string. This supports roundtripping vendor `.fxb` files,
-    /// and editing program names without understanding vendor program encoding.
+    /// Note: `ProgramData` is treated as an opaque string. This supports roundtripping `.fxb` files,
+    /// and editing program names without understanding the internal program encoding.
     public static func buildFXBBytes(from bank: Bank) throws -> [UInt8]
     {
         guard bank.programs.count == 64 else { throw Error.invalidProgramCount(bank.programs.count) }

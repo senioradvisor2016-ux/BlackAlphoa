@@ -1,9 +1,9 @@
 import Foundation
 
-/// Parser for the reKon `*.rms` preferences file observed in the installer.
+/// Parser for the `*.rms` preferences file format we support.
 /// This is a VC2 container whose XML root contains lots of attributes like:
 /// `Prefs_Midi_default_midi_channel`, `Prefs_Midi_device_id`, etc.
-public enum ReKonRMS
+public enum BlackAlphaRMS
 {
     public static func parsePrefs(fromVC2Bytes bytes: [UInt8]) throws -> [String: String]
     {
@@ -13,7 +13,7 @@ public enum ReKonRMS
 
     public static func parsePrefs(fromXML xml: String) throws -> [String: String]
     {
-        // Same lightweight attribute scrape approach as ReKonFXB.
+        // Same lightweight attribute scrape approach as FXB.
         guard let rootRange = xml.range(of: "<") else { throw Error.invalidXML }
         let tail = xml[rootRange.lowerBound...]
         guard let end = tail.firstIndex(of: ">") else { throw Error.invalidXML }
@@ -22,7 +22,7 @@ public enum ReKonRMS
         var out: [String: String] = [:]
 
         // Very small attribute parser: scan key="value" tokens.
-        // Assumes there are no '>' characters inside quoted values (true for observed files).
+        // Assumes there are no '>' characters inside quoted values.
         var i = header.startIndex
         while i < header.endIndex
         {
@@ -60,7 +60,7 @@ public enum ReKonRMS
 
         public var description: String
         {
-            "Invalid reKon RMS XML."
+            "Invalid RMS XML."
         }
     }
 }
