@@ -4,6 +4,9 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 
 #include "RolandSysex.h"
+#include "ui/UheLookAndFeel.h"
+#include "ui/UhePanel.h"
+#include "ui/LCDDisplay.h"
 
 class MainComponent final : public juce::Component,
                             private juce::MidiInputCallback,
@@ -46,7 +49,15 @@ private:
     std::vector<uint8_t> workingData;
 
     // ==== UI ====
-    juce::Label title;
+    uhe::Theme theme;
+    uhe::LookAndFeel lookAndFeel { theme };
+    uhe::LCDDisplay lcd { theme };
+
+    uhe::Panel midiPanel { theme };
+    uhe::Panel actionsPanel { theme };
+    uhe::Panel rolandPanel { theme };
+    uhe::Panel paramsPanel { theme };
+    uhe::Panel logPanel { theme };
 
     juce::TextButton refreshButton { "Refresh MIDI" };
     juce::ComboBox midiInBox;
@@ -60,7 +71,7 @@ private:
     juce::TextButton requestButton { "Request patch (RQ1)" };
     juce::TextButton sendDT1Button { "Send working data (DT1)" };
 
-    juce::GroupComponent rolandGroup { {}, "Roland SysEx (editable)" };
+    // Roland SysEx controls (within rolandPanel)
     juce::Label deviceIdLabel { {}, "Device ID (hex)" };
     juce::Label modelIdLabel { {}, "Model ID (hex)" };
     juce::TextEditor deviceIdHex;
@@ -71,7 +82,7 @@ private:
     juce::TextEditor addressHex;
     juce::TextEditor sizeHex;
 
-    juce::GroupComponent paramsGroup { {}, "Working parameters (placeholder mapping)" };
+    // Params (within paramsPanel)
     juce::Viewport paramsViewport;
     std::unique_ptr<juce::Component> paramsContent;
 

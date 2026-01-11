@@ -27,6 +27,10 @@ target_sources(AlphaJuno2Editor
     src/MainComponent.cpp
     src/MainComponent.h
     src/RolandSysex.h
+    src/ui/UheTheme.h
+    src/ui/UhePanel.h
+    src/ui/LCDDisplay.h
+    src/ui/UheLookAndFeel.h
 )
 
 target_compile_definitions(AlphaJuno2Editor

@@ -130,12 +130,25 @@ inline bool parseHexTriplet (juce::String s, std::array<uint8_t, 3>& out)
 
 MainComponent::MainComponent()
 {
-    setSize (980, 720);
+    setSize (1080, 720);
 
-    title.setText ("Alpha Juno-2 Editor (JUCE) — MIDI SysEx utility", juce::dontSendNotification);
-    title.setJustificationType (juce::Justification::centredLeft);
-    title.setFont (juce::Font (18.0f, juce::Font::bold));
-    addAndMakeVisible (title);
+    setLookAndFeel (&lookAndFeel);
+
+    addAndMakeVisible (lcd);
+    lcd.setText ("ALPHA JUNO-2 EDITOR");
+    lcd.setRightText ("MIDI: --  CH: 1");
+
+    midiPanel.setTitle ("MIDI");
+    actionsPanel.setTitle ("ACTIONS");
+    rolandPanel.setTitle ("ROLAND SYSEX");
+    paramsPanel.setTitle ("PARAMETERS (PLACEHOLDER)");
+    logPanel.setTitle ("LOG");
+
+    addAndMakeVisible (midiPanel);
+    addAndMakeVisible (actionsPanel);
+    addAndMakeVisible (rolandPanel);
+    addAndMakeVisible (paramsPanel);
+    addAndMakeVisible (logPanel);
 
     addAndMakeVisible (refreshButton);
     refreshButton.onClick = [this]
@@ -165,7 +178,6 @@ MainComponent::MainComponent()
     requestButton.onClick = [this] { requestPatch(); };
     sendDT1Button.onClick = [this] { sendWorkingDT1(); };
 
-    addAndMakeVisible (rolandGroup);
     addAndMakeVisible (deviceIdLabel);
     addAndMakeVisible (modelIdLabel);
     addAndMakeVisible (deviceIdHex);
@@ -194,7 +206,6 @@ MainComponent::MainComponent()
             ids.modelId = b;
     };
 
-    addAndMakeVisible (paramsGroup);
     addAndMakeVisible (paramsViewport);
     paramsViewport.setScrollBarsShown (true, false);
 
@@ -206,7 +217,7 @@ MainComponent::MainComponent()
     log.setMultiLine (true);
     log.setReadOnly (true);
     log.setScrollbarsShown (true);
-    log.setFont (juce::Font (13.0f));
+    log.setFont (juce::Font (juce::FontOptions().withHeight (13.0f)));
 
     refreshMidiDeviceLists();
     startTimerHz (10);
@@ -216,82 +227,106 @@ MainComponent::MainComponent()
 MainComponent::~MainComponent()
 {
     closeMidiDevices();
+    setLookAndFeel (nullptr);
 }
 
 void MainComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colours::darkgrey.darker (0.7f));
+    juce::ColourGradient bg (theme.bg0, 0.0f, 0.0f, theme.bg1, 0.0f, (float) getHeight(), false);
+    g.setGradientFill (bg);
+    g.fillAll();
 }
 
 void MainComponent::resized()
 {
     auto r = getLocalBounds().reduced (12);
 
-    auto top = r.removeFromTop (34);
-    title.setBounds (top.removeFromLeft (520));
-    refreshButton.setBounds (top.removeFromLeft (140));
+    // LCD strip
+    auto top = r.removeFromTop (64);
+    lcd.setBounds (top.removeFromTop (54));
+    r.removeFromTop (10);
 
-    r.removeFromTop (8);
+    // Top row panels: MIDI + Actions
+    auto topRow = r.removeFromTop (118);
+    auto midiArea = topRow.removeFromLeft (520);
+    topRow.removeFromLeft (10);
+    auto actionsArea = topRow;
 
-    auto midiRow = r.removeFromTop (34);
-    midiInLabel.setBounds (midiRow.removeFromLeft (60));
-    midiInBox.setBounds (midiRow.removeFromLeft (330));
-    midiRow.removeFromLeft (12);
-    midiOutLabel.setBounds (midiRow.removeFromLeft (70));
-    midiOutBox.setBounds (midiRow.removeFromLeft (330));
+    midiPanel.setBounds (midiArea);
+    actionsPanel.setBounds (actionsArea);
+
+    auto mp = midiArea.reduced (14);
+    mp.removeFromTop (20);
+    auto m1 = mp.removeFromTop (28);
+    midiInLabel.setBounds (m1.removeFromLeft (60));
+    midiInBox.setBounds (m1.removeFromLeft (340));
+    m1.removeFromLeft (10);
+    refreshButton.setBounds (m1.removeFromLeft (100));
+    mp.removeFromTop (10);
+    auto m2 = mp.removeFromTop (28);
+    midiOutLabel.setBounds (m2.removeFromLeft (70));
+    midiOutBox.setBounds (m2.removeFromLeft (330));
+
+    auto ap = actionsArea.reduced (14);
+    ap.removeFromTop (20);
+    auto a1 = ap.removeFromTop (28);
+    loadButton.setBounds (a1.removeFromLeft (120));
+    a1.removeFromLeft (8);
+    saveButton.setBounds (a1.removeFromLeft (120));
+    a1.removeFromLeft (8);
+    sendButton.setBounds (a1.removeFromLeft (200));
+    ap.removeFromTop (10);
+    auto a2 = ap.removeFromTop (28);
+    requestButton.setBounds (a2.removeFromLeft (220));
+    a2.removeFromLeft (8);
+    sendDT1Button.setBounds (a2.removeFromLeft (240));
 
     r.removeFromTop (10);
 
-    auto actionRow = r.removeFromTop (34);
-    loadButton.setBounds (actionRow.removeFromLeft (120));
-    actionRow.removeFromLeft (8);
-    saveButton.setBounds (actionRow.removeFromLeft (120));
-    actionRow.removeFromLeft (8);
-    sendButton.setBounds (actionRow.removeFromLeft (180));
-    actionRow.removeFromLeft (8);
-    requestButton.setBounds (actionRow.removeFromLeft (180));
-    actionRow.removeFromLeft (8);
-    sendDT1Button.setBounds (actionRow.removeFromLeft (180));
+    // Middle: Roland panel
+    auto mid = r.removeFromTop (190);
+    rolandPanel.setBounds (mid);
+    auto gg = mid.reduced (14);
+    gg.removeFromTop (20);
 
-    r.removeFromTop (10);
-
-    auto upper = r.removeFromTop (170);
-    rolandGroup.setBounds (upper);
-    auto gg = upper.reduced (12);
-
-    auto row1 = gg.removeFromTop (26);
-    deviceIdLabel.setBounds (row1.removeFromLeft (130));
-    deviceIdHex.setBounds (row1.removeFromLeft (80));
-    row1.removeFromLeft (12);
-    modelIdLabel.setBounds (row1.removeFromLeft (110));
-    modelIdHex.setBounds (row1.removeFromLeft (80));
+    auto rr1 = gg.removeFromTop (26);
+    deviceIdLabel.setBounds (rr1.removeFromLeft (130));
+    deviceIdHex.setBounds (rr1.removeFromLeft (80));
+    rr1.removeFromLeft (12);
+    modelIdLabel.setBounds (rr1.removeFromLeft (110));
+    modelIdHex.setBounds (rr1.removeFromLeft (80));
 
     gg.removeFromTop (8);
-
-    auto row2 = gg.removeFromTop (26);
-    addressLabel.setBounds (row2.removeFromLeft (280));
-    addressHex.setBounds (row2.removeFromLeft (140));
+    auto rr2 = gg.removeFromTop (26);
+    addressLabel.setBounds (rr2.removeFromLeft (300));
+    addressHex.setBounds (rr2.removeFromLeft (160));
 
     gg.removeFromTop (8);
-
-    auto row3 = gg.removeFromTop (26);
-    sizeLabel.setBounds (row3.removeFromLeft (280));
-    sizeHex.setBounds (row3.removeFromLeft (140));
+    auto rr3 = gg.removeFromTop (26);
+    sizeLabel.setBounds (rr3.removeFromLeft (300));
+    sizeHex.setBounds (rr3.removeFromLeft (160));
 
     r.removeFromTop (10);
 
+    // Bottom: params + log
     auto bottom = r;
-    auto left = bottom.removeFromLeft (520);
-    paramsGroup.setBounds (left);
-    auto pg = left.reduced (12);
+    auto left = bottom.removeFromLeft (560);
+    bottom.removeFromLeft (10);
+    auto right = bottom;
+
+    paramsPanel.setBounds (left);
+    auto pg = left.reduced (14);
+    pg.removeFromTop (20);
     paramsViewport.setBounds (pg);
 
     // keep the inner list tall enough for scrolling
     if (auto* list = dynamic_cast<ParamsList*> (paramsContent.get()))
         paramsContent->setSize (pg.getWidth() - 18, list->getTotalHeight());
 
-    bottom.removeFromLeft (10);
-    log.setBounds (bottom);
+    logPanel.setBounds (right);
+    auto lg = right.reduced (14);
+    lg.removeFromTop (20);
+    log.setBounds (lg);
 }
 
 void MainComponent::refreshMidiDeviceLists()
