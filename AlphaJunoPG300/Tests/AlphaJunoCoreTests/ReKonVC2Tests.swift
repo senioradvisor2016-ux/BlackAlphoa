@@ -36,5 +36,24 @@ final class ReKonVC2Tests: XCTestCase
         XCTAssertEqual(prefs["Prefs_Midi_default_midi_channel"], "0")
         XCTAssertEqual(prefs["Prefs_Editor_knob_mode"], "4")
     }
+
+    func testReKonProgramDataCodec_DBVariantTrailingDot() throws
+    {
+        // 54 bytes -> base64 72 chars; db variant appends trailing dot.
+        let bytes = Array(0..<54).map { UInt8($0) }
+        let s = ReKonProgramDataCodec.encodeDBString(bytes: bytes)
+        XCTAssertTrue(s.hasSuffix("."))
+        let back = try ReKonProgramDataCodec.decodeDBString(s)
+        XCTAssertEqual(back, bytes)
+    }
+
+    func testReKonProgramDataCodec_FXBVariantNoTrailingDot() throws
+    {
+        let bytes = Array(0..<56).map { UInt8($0) }
+        let s = ReKonProgramDataCodec.encodeFXBString(bytes: bytes)
+        XCTAssertFalse(s.hasSuffix("."))
+        let back = try ReKonProgramDataCodec.decodeFXBString(s)
+        XCTAssertEqual(back, bytes)
+    }
 }
 

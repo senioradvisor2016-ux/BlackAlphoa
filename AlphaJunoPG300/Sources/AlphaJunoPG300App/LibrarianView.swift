@@ -17,8 +17,13 @@ struct LibrarianView: View
                 Spacer()
                 Button("Load .SYX") { model.showImporter = true }
                 Button("Import .FXB") { model.showFXBImporter = true }
+                Button("Import .DB") { model.showDBImporter = true }
                 Button("Export .SYX") { model.prepareExport() }
                     .disabled(model.bank == nil)
+                Button("Export .FXB") { model.prepareFXBExport() }
+                    .disabled(model.rekonPrograms.isEmpty)
+                Button("Export .DB") { model.prepareDBExport() }
+                    .disabled(model.rekonDBPrograms.isEmpty)
             }
             .padding(.horizontal, 12)
             .padding(.top, 12)
@@ -74,6 +79,17 @@ struct LibrarianView: View
                         Divider()
                     }
 
+                    if !model.rekonDBPrograms.isEmpty
+                    {
+                        Text("Imported .DB (Programs)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text("Count: \(model.rekonDBPrograms.count)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Divider()
+                    }
+
                     Text("Tone Name (max 10 chars)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -123,6 +139,13 @@ struct LibrarianView: View
         ) { result in
             model.handleFXBImportResult(result)
         }
+        .fileImporter(
+            isPresented: $model.showDBImporter,
+            allowedContentTypes: [UTType(filenameExtension: "db") ?? .data],
+            allowsMultipleSelection: false
+        ) { result in
+            model.handleDBImportResult(result)
+        }
         .fileExporter(
             isPresented: $model.showExporter,
             document: model.exportDocument,
@@ -130,6 +153,22 @@ struct LibrarianView: View
             defaultFilename: model.exportFilename
         ) { result in
             model.handleExportResult(result)
+        }
+        .fileExporter(
+            isPresented: $model.showFXBExporter,
+            document: model.exportFXBDocument,
+            contentType: UTType(filenameExtension: "fxb") ?? .data,
+            defaultFilename: model.exportFXBFilename
+        ) { result in
+            model.handleFXBExportResult(result)
+        }
+        .fileExporter(
+            isPresented: $model.showDBExporter,
+            document: model.exportDBDocument,
+            contentType: UTType(filenameExtension: "db") ?? .data,
+            defaultFilename: model.exportDBFilename
+        ) { result in
+            model.handleDBExportResult(result)
         }
     }
 }
@@ -150,9 +189,23 @@ final class LibrarianViewModel: ObservableObject
         let data: String
     }
 
+    struct RekonDBProgramRow
+    {
+        let id: Int
+        let name: String
+        let category: String?
+        let author: String?
+        let rating: Int?
+        let favorite: Bool
+        let notes: String?
+        let programDataLength: Int
+    }
+
     @Published var bank: SyxBank?
     @Published var tones: [ToneRow] = []
     @Published var rekonPrograms: [RekonProgramRow] = []
+    @Published var rekonDBPrograms: [RekonDBProgramRow] = []
+    private var rekonDBFullPrograms: [ReKonProgramsDB.Program] = []
 
     @Published var selectedToneIndex: Int?
     @Published var editName: String = ""
@@ -160,10 +213,19 @@ final class LibrarianViewModel: ObservableObject
 
     @Published var showImporter: Bool = false
     @Published var showFXBImporter: Bool = false
+    @Published var showDBImporter: Bool = false
     @Published var showExporter: Bool = false
+    @Published var showFXBExporter: Bool = false
+    @Published var showDBExporter: Bool = false
 
     var exportDocument: SyxDocument?
     var exportFilename: String = "BANK.SYX"
+
+    var exportFXBDocument: SyxDocument?
+    var exportFXBFilename: String = "VST-AU Alpha JUNO Editor.fxb"
+
+    var exportDBDocument: SyxDocument?
+    var exportDBFilename: String = "VST-AU Alpha JUNO Editor.db"
 
     func handleImportResult(_ result: Result<[URL], Error>)
     {
@@ -194,6 +256,34 @@ final class LibrarianViewModel: ObservableObject
             let data = try Data(contentsOf: url)
             let programs = try ReKonFXB.parsePrograms(fromVC2Bytes: Array(data))
             self.rekonPrograms = programs.map { RekonProgramRow(index: $0.index, name: $0.name, data: $0.data) }
+            self.error = nil
+        }
+        catch
+        {
+            self.error = String(describing: error)
+        }
+    }
+
+    func handleDBImportResult(_ result: Result<[URL], Error>)
+    {
+        do
+        {
+            let urls = try result.get()
+            guard let url = urls.first else { return }
+            let programs = try ReKonProgramsDB.load(url: url)
+            self.rekonDBFullPrograms = programs
+            self.rekonDBPrograms = programs.map {
+                RekonDBProgramRow(
+                    id: $0.id,
+                    name: $0.name,
+                    category: $0.category,
+                    author: $0.author,
+                    rating: $0.rating,
+                    favorite: $0.favorite,
+                    notes: $0.notes,
+                    programDataLength: $0.programData.count
+                )
+            }
             self.error = nil
         }
         catch
@@ -238,7 +328,70 @@ final class LibrarianViewModel: ObservableObject
         }
     }
 
+    func prepareFXBExport()
+    {
+        do
+        {
+            let programs = rekonPrograms.map { ReKonFXB.Program(index: $0.index, name: $0.name, data: $0.data) }
+            let bank = ReKonFXBWriter.Bank(bankName: "Bank.0", programs: programs)
+            let bytes = try ReKonFXBWriter.buildFXBBytes(from: bank)
+            exportFXBDocument = SyxDocument(data: Data(bytes))
+            showFXBExporter = true
+            error = nil
+        }
+        catch
+        {
+            self.error = String(describing: error)
+        }
+    }
+
+    func prepareDBExport()
+    {
+        do
+        {
+            guard !rekonDBFullPrograms.isEmpty else
+            {
+                self.error = "No DB programs loaded."
+                return
+            }
+
+            // Create a temp file, then wrap bytes into a FileDocument for export.
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("db")
+            try ReKonProgramsDB.save(url: tmp, programs: rekonDBFullPrograms)
+            let data = try Data(contentsOf: tmp)
+            exportDBDocument = SyxDocument(data: data)
+            showDBExporter = true
+            error = nil
+        }
+        catch
+        {
+            self.error = String(describing: error)
+        }
+    }
+
     func handleExportResult(_ result: Result<URL, Error>)
+    {
+        switch result
+        {
+        case .success:
+            break
+        case .failure(let err):
+            self.error = String(describing: err)
+        }
+    }
+
+    func handleFXBExportResult(_ result: Result<URL, Error>)
+    {
+        switch result
+        {
+        case .success:
+            break
+        case .failure(let err):
+            self.error = String(describing: err)
+        }
+    }
+
+    func handleDBExportResult(_ result: Result<URL, Error>)
     {
         switch result
         {
