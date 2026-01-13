@@ -8,24 +8,16 @@ public enum SysExIPR
     /// - `ch` is 0x00..0x0F for channels 1..16 (UI).
     public static func iprMessage(channel: Int, param: UInt8, value: UInt8) throws -> [UInt8]
     {
-        guard (1...16).contains(channel) else
+        do { return try SysExAlphaJuno.ipr(channel: channel, param: param, value: value) }
+        catch let e as SysExAlphaJuno.Error
         {
-            throw Error.invalidChannel(channel)
+            switch e
+            {
+            case let .invalidChannel(ch): throw Error.invalidChannel(ch)
+            case let .invalidParam(p): throw Error.invalidParam(p)
+            case let .invalidValue(v): throw Error.invalidValue(v)
+            }
         }
-
-        // Param id is specified as 0x00..0x23 (36 params). We'll validate but keep it flexible.
-        guard param <= 0x7F else
-        {
-            throw Error.invalidParam(param)
-        }
-
-        guard value <= 0x7F else
-        {
-            throw Error.invalidValue(value)
-        }
-
-        let ch = UInt8(channel - 1) & 0x0F
-        return [0xF0, 0x41, 0x36, ch, 0x23, 0x20, 0x01, param, value, 0xF7]
     }
 
     public enum Error: Swift.Error, Equatable, CustomStringConvertible
